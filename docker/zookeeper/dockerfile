@@ -1,0 +1,5 @@
+FROM docker.io/zookeeper
+USER root
+COPY main.sh /usr/local/bin
+RUN chmod +x /usr/local/bin/main.sh
+CMD ["/usr/local/bin/main.sh"]

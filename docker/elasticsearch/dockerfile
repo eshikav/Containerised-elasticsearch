@@ -1,0 +1,13 @@
+FROM docker.elastic.co/elasticsearch/elasticsearch:6.5.4
+RUN yum install cronie -y
+RUN yum install epel-release -y
+RUN yum install python-pip -y
+RUN pip install elasticsearch-curator
+RUN /usr/share/elasticsearch/bin/elasticsearch-plugin install -b com.floragunn:search-guard-6:6.5.4-24.0
+RUN chmod +x /usr/share/elasticsearch/plugins/search-guard-6/tools/*.sh
+RUN touch /var/log/cron
+COPY main.sh /usr/local/bin/
+COPY sgadmin-bringup.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/main.sh
+RUN chmod +x /usr/local/bin/sgadmin-bringup.sh
+ENTRYPOINT ["/usr/local/bin/main.sh"]

@@ -1,0 +1,62 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: zookeeper
+spec:
+  selector:
+    app: zookeeper
+  ports:
+   - protocol: TCP
+     port: 2181
+     targetPort: 2181
+     name: client
+   - targetPort: 2888
+     port: 2888
+     protocol: TCP
+     name: follower
+   - targetPort: 3888
+     port: 3888
+     protocol: TCP
+     name: election
+  type: NodePort
+---
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  labels:
+    app: zookeeper
+spec:
+  serviceName: zookeeper
+  replicas: 1
+  selector:
+   matchLabels:
+    app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+     containers:
+      - name: zookeeper
+        image: zookeeper:3.4.13
+#        command: ['/usr/bin/tail','-f','/dev/null']
+        env:
+          - name: ZOOID_BUILD_COMMAND
+            value: hostname| awk 'BEGIN{FS="-"} {print $2}'
+          - name: ZOO_CLUSTER_SIZE
+            value: "3"
+        resources:
+          requests:
+            memory: 512Mi
+        ports:
+        - containerPort: 2181 
+          name: client
+          protocol: TCP
+        - containerPort: 2888
+          name: follower
+          protocol: TCP
+        - containerPort: 3888
+          name: election
+          protocol: TCP

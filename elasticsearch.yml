@@ -1,0 +1,295 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: elasticsearch
+spec:
+  selector:
+    app: elasticsearch-master
+  ports:
+   - protocol: TCP
+     port: 9200
+     targetPort: 9200
+     name: http
+   - targetPort: 9300
+     port: 9300
+     protocol: TCP
+     name: transport
+  type: NodePort
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: elasticsearch-data
+spec:
+  selector:
+    app: elasticsearch-data
+  ports:
+   - protocol: TCP
+     port: 9200
+     targetPort: 9200
+     name: http
+   - targetPort: 9300
+     port: 9300
+     protocol: TCP
+     name: transport
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: elasticsearch-dat-master
+spec:
+  selector:
+    app: elasticsearch-dat-master
+  ports:
+   - protocol: TCP
+     port: 9200
+     targetPort: 9200
+     name: http
+   - targetPort: 9300
+     port: 9300
+     protocol: TCP
+     name: transport
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name:  hotwarm-config
+  labels:
+    app: hotwarm-config
+data:
+  hotwarm-config: "actions:\n  1:\n   action: allocation\n   description: \"Apply
+    shard allocation filtering rules to the specified indices\"\n   options:\n     key:
+    box_type\n     value: warm\n     allocation_type: require\n     wait_for_completion:
+    true\n     timeout_override:\n     continue_if_exception: false\n     disable_action:
+    false\n   filters:\n     - filtertype: pattern\n       kind: prefix\n       value:
+    logstash-*\n     - filtertype: age\n       source: name\n       direction: older\n
+    \      timestring: '%Y.%m.%d'\n       unit: days\n       unit_count: 1\n  2:\n
+    \   action: forcemerge\n    description: \"Perform a forceMerge on selected indices
+    to 'max_num_segments' per shard\"\n    options:\n      max_num_segments: 1\n      delay:\n
+    \     timeout_override: 21600 \n      continue_if_exception: false\n      disable_action:
+    false\n    filters:\n      - filtertype: pattern\n        kind: prefix\n        value:
+    logstash-*\n      - filtertype: age\n        source: name\n        direction: older\n
+    \       timestring: '%Y.%m.%d'\n        unit: days\n        unit_count: 1\n\n"
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name:  curator-config
+  labels:
+    app: curator-config
+data:
+  curator-config: |+
+    client:
+      hosts:
+        - elasticsearch
+        - elasticsearch-data
+      port: 9200
+      url_prefix:
+      use_ssl: False
+      certificate:
+      client_cert:
+      client_key:
+      ssl_no_validate: False
+      http_auth:
+      timeout: 30
+      master_only: False
+
+    logging:
+      loglevel: INFO
+      logfile: /var/log/curator.log
+      logformat: default
+      blacklist: ['elasticsearch', 'urllib3']
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name:  cron-config
+  labels:
+    app: cron
+data:
+  curator-cron: |
+     00 8 * * * root curator /usr/share/elasticsearch/config/hotwarm-config/hotwarm-config --config /usr/share/elasticsearch/config/curator-config/curator-config
+---
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: elasticsearch-master
+  labels:
+    app: elasticsearch-master
+spec:
+  serviceName: elasticsearch-master
+  replicas: 3
+  selector:
+   matchLabels:
+    app: elasticsearch-master
+  template:
+    metadata:
+      labels:
+        app: elasticsearch-master
+    spec:
+     containers:
+      - name: elasticsearch-master
+        image: secure-elasticsearch:6.5.4-24.0
+        env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms1G -Xmx1G"
+          - name: "cluster.name"
+            value: "sample-docker"
+          - name: "discovery.zen.ping.unicast.hosts"
+            value: "elasticsearch"
+          - name: "node.master"
+            value: "true"
+          - name: "node.data"
+            value: "false"
+          - name: "discovery.zen.minimum_master_nodes"
+            value: "2"
+        resources:
+          requests:
+            memory: 512Mi
+        ports:
+        - containerPort: 9200
+          name: http
+          protocol: TCP
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
+        volumeMounts:
+        - name: cron-cfg
+          mountPath: /etc/cron.d/
+        - name: hotwarm-config
+          mountPath: /usr/share/elasticsearch/config/hotwarm-config
+        - name: curator-config
+          mountPath: /usr/share/elasticsearch/config/curator-config
+     volumes:
+        - name: cron-cfg
+          configMap:
+            name: cron-config
+        - name: hotwarm-config
+          configMap:
+            name: hotwarm-config
+        - name: curator-config
+          configMap:
+            name: curator-config
+---
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: elasticsearch-data
+  labels:
+    app: elasticsearch-data
+spec:
+  selector:
+   matchLabels:
+    app: elasticsearch-data
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: elasticsearch-data
+    spec:
+      containers:
+      - name: elasticsearch-master
+        image: secure-elasticsearch:6.5.4-24.0
+        env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms512m -Xmx512m"
+          - name: "cluster.name"
+            value: "sample-docker"
+          - name: "discovery.zen.ping.unicast.hosts"
+            value: "elasticsearch"
+          - name: "node.data"
+            value: "true"
+          - name: "node.master"
+            value: "false"
+          - name: "discovery.zen.minimum_master_nodes"
+            value: "2"
+        resources:
+          requests:
+            memory: 512Mi
+        ports:
+        - containerPort: 9200
+          name: http
+          protocol: TCP
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
+        volumeMounts:
+        - name: cron-cfg
+          mountPath: /etc/cron.d/
+        - name: hotwarm-config
+          mountPath: /usr/share/elasticsearch/config/hotwarm-config
+        - name: curator-config
+          mountPath: /usr/share/elasticsearch/config/curator-config
+      volumes:
+        - name: cron-cfg
+          configMap:
+            name: cron-config
+        - name: hotwarm-config
+          configMap:
+            name: hotwarm-config
+        - name: curator-config
+          configMap:
+            name: curator-config
+---
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: elasticsearch-dat-master
+  labels:
+    app: elasticsearch-dat-master
+spec:
+  selector:
+   matchLabels:
+    app: elasticsearch-dat-master
+  replicas: 0
+  template:
+    metadata:
+      labels:
+        app: elasticsearch-dat-master
+    spec:
+      containers:
+      - name: elasticsearch-dat-master
+        image: secure-elasticsearch:6.5.4-24.0
+        env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms512m -Xmx512m"
+          - name: "cluster.name"
+            value: "sample-docker"
+          - name: "discovery.zen.ping.unicast.hosts"
+            value: "elasticsearch"
+          - name: "node.data"
+            value: "true"
+          - name: "node.master"
+            value: "true"
+          - name: "discovery.zen.minimum_master_nodes"
+            value: "2"
+        resources:
+          requests:
+            memory: 512Mi
+        ports:
+        - containerPort: 9200
+          name: http
+          protocol: TCP
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
+        volumeMounts:
+        - name: cron-cfg
+          mountPath: /etc/cron.d/
+        - name: hotwarm-config
+          mountPath: /usr/share/elasticsearch/config/hotwarm-config
+        - name: curator-config
+          mountPath: /usr/share/elasticsearch/config/curator-config
+      volumes:
+        - name: cron-cfg
+          configMap:
+            name: cron-config
+        - name: hotwarm-config
+          configMap:
+            name: hotwarm-config
+        - name: curator-config
+          configMap:
+            name: curator-config
+
+

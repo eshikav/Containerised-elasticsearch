@@ -1,0 +1,52 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: kafka-cluster
+spec:
+  selector:
+    app: kafka
+  ports:
+   - protocol: TCP
+     port: 9092
+     targetPort: 9092
+     name: kafka
+  type: NodePort
+---
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+   matchLabels:
+    app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+     containers:
+      - name: kafka
+        image: wurstmeister/kafka
+#        command: ['/usr/bin/tail','-f','/dev/null']
+        env:
+          - name: KAFKA_ZOOKEEPER_CONNECT
+            value: zookeeper
+          - name: KAFKA_ADVERTISED_HOST_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: BROKER_ID_COMMAND
+            value: hostname| awk 'BEGIN{FS="-"} {print $2}'
+        resources:
+          requests:
+            memory: 512Mi
+        ports:
+        - containerPort: 9092
+          name: kafka
+          protocol: TCP
